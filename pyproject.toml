@@ -1,0 +1,25 @@
+[project]
+name = "magicpanel"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Maddie", email = "rancid1two@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pygame>=2.6",
+]
+
+[project.scripts]
+magicpanel-engine = "magicpanel.engine_main:main"
+magicpanel = "magicpanel.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.2,<0.12.0"]
+build-backend = "uv_build"
