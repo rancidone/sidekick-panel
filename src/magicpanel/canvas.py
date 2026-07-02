@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-PANEL_WIDTH = 64
-PANEL_HEIGHT = 32
+PANEL_WIDTH = 128
+PANEL_HEIGHT = 64
 
 Color = tuple[int, int, int]
 
 
 class Canvas(ABC):
-    """A 64x32 RGB pixel surface."""
+    """A 128x64 RGB pixel surface."""
 
     width: int = PANEL_WIDTH
     height: int = PANEL_HEIGHT
@@ -41,7 +41,7 @@ class Canvas(ABC):
 class PygameCanvas(Canvas):
     """Emulated canvas: a scaled-up Pygame window standing in for the panel."""
 
-    def __init__(self, *, scale: int = 12) -> None:
+    def __init__(self, *, scale: int = 8) -> None:
         import pygame
 
         self._pygame = pygame

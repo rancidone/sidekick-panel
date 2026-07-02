@@ -1,6 +1,6 @@
 ---
 status: draft
-last_updated: 2026-06-30
+last_updated: 2026-07-01
 ---
 
 # Magic Panel — Discovery Brief
@@ -46,8 +46,8 @@ unprompted, rather than turning it off once the novelty wears off.
 - **Local-only communication.** The Mac-to-display link must be a local,
   non-network protocol.
 - **Hardware is already fixed** (not open for Discovery): Raspberry Pi 4 as
-  controller, 64x32 P4 HUB75 RGB matrix panel, dedicated 5V ~10A power
-  supply.
+  controller, 128x64 P2 HUB75 RGB matrix panel (2mm pixel pitch), dedicated
+  5V ~10A power supply.
 
 ## Assumptions
 

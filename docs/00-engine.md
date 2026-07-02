@@ -1,6 +1,6 @@
 ---
 status: draft
-last_updated: 2026-06-30
+last_updated: 2026-07-01
 parents:
 - discovery-brief.md
 ---
@@ -10,7 +10,7 @@ parents:
 ## Design Unit
 
 The persistent visual engine, character/scene system, and local event
-protocol for Magic Panel, running against a software-emulated 64x32 display.
+protocol for Magic Panel, running against a software-emulated 128x64 display.
 This unit deliberately excludes HUB75/Raspberry Pi hardware bring-up, BLE
 transport, and workflow integrations (Claude Code, git, tests) — those are
 separate units once this one is solid.
@@ -33,7 +33,7 @@ Each scene can host a persistent character and/or ambient elements (e.g. a
 tree-based scene). This resolves the "single character vs. ambient world"
 question as "both, via scenes" rather than picking one.
 
-**Composition constraint.** The 64x32 panel is a 2:1 wide aspect ratio.
+**Composition constraint.** The 128x64 panel is a 2:1 wide aspect ratio.
 Scenes must be composed horizontally — a tall, vertically-dominant motif
 (e.g. a single centered tree) would leave large dead zones on either side.
 Any scene design should treat width as the primary compositional axis.
@@ -45,7 +45,7 @@ scene) can be added later without restructuring, but v1 only wires up
 manual switching.
 
 **Stack: Python, with a swappable rendering-canvas abstraction.**
-- Now: a Pygame window stands in for the 64x32 grid.
+- Now: a Pygame window stands in for the 128x64 grid.
 - Later: the same scene/character/engine code targets
   `hzeller/rpi-rgb-led-matrix`'s Python bindings, the mature de facto driver
   for this HUB75 panel type.
@@ -53,7 +53,7 @@ manual switching.
   implementation backs it now, an `RGBMatrixCanvas` implementation backs it
   later. Scene and character code never needs to change when the backend
   swaps.
-- Rationale: at 64x32 resolution, animation/scene-authoring iteration speed
+- Rationale: at 128x64 resolution, animation/scene-authoring iteration speed
   matters more than raw performance, and Python has the fastest loop for
   that. See Tradeoffs.
 
@@ -142,7 +142,7 @@ that topology with the transport layer swapped out.
 - **Python vs. Rust/C++/Go:** Python was chosen over systems languages for
   faster scene/animation-authoring iteration, which is the actual hard
   problem at this resolution (not raw performance). Cost: lower runtime
-  performance and weaker typing. Accepted because 64x32 has minimal
+  performance and weaker typing. Accepted because 128x64 has minimal
   performance demands and this stack has established precedent in the
   HUB75 hobbyist space via `rpi-rgb-led-matrix`'s own Python bindings.
 - **Manual (CLI-driven) scene switching vs. event-driven switching now:**
