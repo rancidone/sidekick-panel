@@ -2,11 +2,11 @@
 
 A single character whose mood reacts to work events, using the engine's
 shared reaction-persistence model. Rendered as the wizard sprite
-(assets/wizard*.png) with a per-mood color tint until dedicated per-mood
-art exists — one idle animation, tint-shifted rather than distinct sprites
-per mood. The idle animation itself (blink + chest-star twinkle) is what
-keeps the scene feeling alive rather than a static frame, per the design
-doc's requirement that every mood have its own idle loop.
+(assets/wizard*.png). Happy has dedicated art (wizard_excite); other moods
+fall back to a color tint over the idle animation until dedicated art
+exists for them too. The idle animation itself (blink + chest-star
+twinkle) is what keeps the scene feeling alive rather than a static frame,
+per the design doc's requirement that every mood have its own idle loop.
 """
 
 from __future__ import annotations
@@ -22,16 +22,19 @@ from magicpanel.sprite import ASSET_DIR, IdleAnimator, Sprite
 BLINK_HOLD = 0.08
 STAR_HOLD = 0.35
 DOUBLE_BLINK_CHANCE = 0.2
+HAPPY_BOUNCE_STEP_SECONDS = 0.15
+HAPPY_JUMP_HEIGHT = 2
 from magicpanel.state import AccumulatingStateStore
 
 BACKGROUND = (10, 10, 20)
 
-# Mood -> (tint color, blend strength). Strength 0 leaves the sprite
-# untouched; higher values shift it further toward the tint color while
-# still preserving its original shading (see Sprite.draw).
+# Mood -> (tint color, blend strength), used for moods without dedicated
+# art. Strength 0 leaves the sprite untouched; higher values shift it
+# further toward the tint color while still preserving its original
+# shading (see Sprite.draw). "happy" has real art instead (see
+# _excite_sprite) and is not looked up here.
 MOOD_TINTS = {
     "baseline": ((255, 255, 255), 0.0),
-    "happy": ((255, 220, 80), 0.35),
     "angry": ((255, 40, 40), 0.5),
     "casting_spells": ((170, 90, 255), 0.45),
     "breathing_fire": ((255, 120, 30), 0.45),
@@ -76,9 +79,13 @@ class DeskSpiritScene(Scene):
         self._liveness = liveness
         self._reactions = ReactionEngine(RULES, accumulator=accumulator)
 
-        base = Sprite(ASSET_DIR / "wizard.png")
+        base = Sprite(ASSET_DIR / "wizard_0001.png")
+        self._base_sprite = base
+        self._excite_sprite = Sprite(ASSET_DIR / "wizard_excite_0001.png")
         blink_1 = Sprite(ASSET_DIR / "wizard_blink_0001.png")
         blink_2 = Sprite(ASSET_DIR / "wizard_blink_0002.png")
+        self._eyes_closing_sprite = blink_1
+        self._eyes_closed_sprite = blink_2
         star_1 = Sprite(ASSET_DIR / "wizard_star_pulse_0001.png")
         star_2 = Sprite(ASSET_DIR / "wizard_star_pulse_0002.png")
         star_3 = Sprite(ASSET_DIR / "wizard_star_pulse_0003.png")
@@ -107,6 +114,8 @@ class DeskSpiritScene(Scene):
             ],
             rng=self._idle_animation_rng,
         )
+        self._happy_bounce_elapsed = 0.0
+        self._sleep_elapsed = 0.0
 
     def handle_event(self, event: dict) -> None:
         event_name = event.get("event")
@@ -129,9 +138,39 @@ class DeskSpiritScene(Scene):
         canvas.clear(BACKGROUND)
 
         mood = self._current_mood()
-        tint, strength = MOOD_TINTS[mood]
-        sprite = self._idle_animation.current()
+        jump_offset = 0
+        if mood == "happy":
+            self._sleep_elapsed = 0.0
+            # Cycle base (0) / excite (1) as actual frames rather than a
+            # pixel offset, so the bounce reads as a pose change. The
+            # excite frame (arms up) also jumps up a pixel, so the arm-wave
+            # reads as a little hop rather than just a static pose swap.
+            self._happy_bounce_elapsed += dt
+            step = int(self._happy_bounce_elapsed / HAPPY_BOUNCE_STEP_SECONDS) % 2
+            if step == 1:
+                sprite = self._excite_sprite
+                jump_offset = -HAPPY_JUMP_HEIGHT
+            else:
+                sprite = self._base_sprite
+            tint, strength = (255, 255, 255), 0.0
+        elif mood == "sleeping":
+            self._happy_bounce_elapsed = 0.0
+            # One-shot close: blink_1 briefly, then hold on blink_2
+            # (closed eyes) for as long as sleeping persists, rather than
+            # looping back open like the idle blink does.
+            self._sleep_elapsed += dt
+            sprite = (
+                self._eyes_closing_sprite
+                if self._sleep_elapsed < BLINK_HOLD
+                else self._eyes_closed_sprite
+            )
+            tint, strength = MOOD_TINTS["sleeping"]
+        else:
+            self._happy_bounce_elapsed = 0.0
+            self._sleep_elapsed = 0.0
+            sprite = self._idle_animation.current()
+            tint, strength = MOOD_TINTS[mood]
 
         origin_x = (canvas.width - sprite.width) // 2
-        origin_y = (canvas.height - sprite.height) // 2
+        origin_y = (canvas.height - sprite.height) // 2 + jump_offset
         sprite.draw(canvas, origin_x, origin_y, tint, strength)
