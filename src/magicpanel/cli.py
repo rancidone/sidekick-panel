@@ -18,6 +18,7 @@ from magicpanel.events import send_event
 KNOWN_EVENTS = {
     "tests_passed": "Desk Spirit: happy (brief)",
     "build_passed": "Desk Spirit: happy (brief)",
+    "bug_squashed": "Desk Spirit: bug kill animation (brief)",
     "production_incident": "Desk Spirit: angry (until incident_resolved)",
     "incident_resolved": "Desk Spirit: clears angry",
     "deploy_started": "Desk Spirit: casting spells (until deploy_finished)",

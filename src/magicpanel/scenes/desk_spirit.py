@@ -22,8 +22,9 @@ from magicpanel.sprite import ASSET_DIR, IdleAnimator, Sprite
 BLINK_HOLD = 0.08
 STAR_HOLD = 0.35
 DOUBLE_BLINK_CHANCE = 0.2
-HAPPY_BOUNCE_STEP_SECONDS = 0.15
-HAPPY_JUMP_HEIGHT = 2
+HAPPY_JUMP_STEP_SECONDS = 0.09
+HAPPY_JUMP_HEIGHTS = (0, 1, 2, 1, 0)
+BUG_KILL_STEP_SECONDS = 0.4
 from magicpanel.state import AccumulatingStateStore
 
 BACKGROUND = (10, 10, 20)
@@ -36,7 +37,6 @@ BACKGROUND = (10, 10, 20)
 MOOD_TINTS = {
     "baseline": ((255, 255, 255), 0.0),
     "angry": ((255, 40, 40), 0.5),
-    "casting_spells": ((170, 90, 255), 0.45),
     "breathing_fire": ((255, 120, 30), 0.45),
     "sleeping": ((40, 40, 80), 0.55),
 }
@@ -44,6 +44,9 @@ MOOD_TINTS = {
 RULES = [
     ReactionRule("happy", ReactionKind.TRANSIENT, "tests_passed", duration_seconds=4.0),
     ReactionRule("happy", ReactionKind.TRANSIENT, "build_passed", duration_seconds=4.0),
+    ReactionRule(
+        "bug_kill", ReactionKind.TRANSIENT, "bug_squashed", duration_seconds=1.6
+    ),
     ReactionRule(
         "angry",
         ReactionKind.STICKY,
@@ -65,7 +68,14 @@ RULES = [
 ]
 
 # Priority order when multiple moods are simultaneously active.
-MOOD_PRIORITY = ["angry", "casting_spells", "breathing_fire", "happy", "baseline"]
+MOOD_PRIORITY = [
+    "angry",
+    "casting_spells",
+    "breathing_fire",
+    "bug_kill",
+    "happy",
+    "baseline",
+]
 
 
 class DeskSpiritScene(Scene):
@@ -82,6 +92,21 @@ class DeskSpiritScene(Scene):
         base = Sprite(ASSET_DIR / "wizard_0001.png")
         self._base_sprite = base
         self._excite_sprite = Sprite(ASSET_DIR / "wizard_excite_0001.png")
+        jump_1 = Sprite(ASSET_DIR / "wizard_jump_0001.png")
+        # Jump arc matching HAPPY_JUMP_HEIGHTS's 0,1,2,1,0 shape: crouch/rise
+        # (jump_1), peak (excite's raised arms, since that's the pose that
+        # reads as "cheering at the top of a hop"), descend.
+        self._happy_jump_sprites = (base, jump_1, self._excite_sprite, jump_1, base)
+        self._cast_sprite = Sprite(ASSET_DIR / "wizard_cast_0001.png")
+        # Bug-kill is just a cast (wand raise -> effect) with its own
+        # payoff frames tacked on the end; it shares the base/cast poses
+        # rather than having dedicated rest/raise art of its own.
+        self._bug_kill_sprites = (
+            base,
+            self._cast_sprite,
+            Sprite(ASSET_DIR / "wizard_bugkill_0003.png"),
+            Sprite(ASSET_DIR / "wizard_bugkill_0004.png"),
+        )
         blink_1 = Sprite(ASSET_DIR / "wizard_blink_0001.png")
         blink_2 = Sprite(ASSET_DIR / "wizard_blink_0002.png")
         self._eyes_closing_sprite = blink_1
@@ -114,7 +139,8 @@ class DeskSpiritScene(Scene):
             ],
             rng=self._idle_animation_rng,
         )
-        self._happy_bounce_elapsed = 0.0
+        self._happy_jump_elapsed = 0.0
+        self._bug_kill_elapsed = 0.0
         self._sleep_elapsed = 0.0
 
     def handle_event(self, event: dict) -> None:
@@ -141,20 +167,36 @@ class DeskSpiritScene(Scene):
         jump_offset = 0
         if mood == "happy":
             self._sleep_elapsed = 0.0
-            # Cycle base (0) / excite (1) as actual frames rather than a
-            # pixel offset, so the bounce reads as a pose change. The
-            # excite frame (arms up) also jumps up a pixel, so the arm-wave
-            # reads as a little hop rather than just a static pose swap.
-            self._happy_bounce_elapsed += dt
-            step = int(self._happy_bounce_elapsed / HAPPY_BOUNCE_STEP_SECONDS) % 2
-            if step == 1:
-                sprite = self._excite_sprite
-                jump_offset = -HAPPY_JUMP_HEIGHT
-            else:
-                sprite = self._base_sprite
+            self._bug_kill_elapsed = 0.0
+            self._happy_jump_elapsed += dt
+            step = int(self._happy_jump_elapsed / HAPPY_JUMP_STEP_SECONDS) % len(
+                HAPPY_JUMP_HEIGHTS
+            )
+            sprite = self._happy_jump_sprites[step]
+            jump_offset = -HAPPY_JUMP_HEIGHTS[step]
+            tint, strength = (255, 255, 255), 0.0
+        elif mood == "bug_kill":
+            self._sleep_elapsed = 0.0
+            self._happy_jump_elapsed = 0.0
+            # One-shot: play through once and hold on the last (cleared)
+            # frame for as long as the reaction stays active, rather than
+            # looping back to the wand-raise pose.
+            self._bug_kill_elapsed += dt
+            step = min(
+                int(self._bug_kill_elapsed / BUG_KILL_STEP_SECONDS),
+                len(self._bug_kill_sprites) - 1,
+            )
+            sprite = self._bug_kill_sprites[step]
+            tint, strength = (255, 255, 255), 0.0
+        elif mood == "casting_spells":
+            self._sleep_elapsed = 0.0
+            self._happy_jump_elapsed = 0.0
+            self._bug_kill_elapsed = 0.0
+            sprite = self._cast_sprite
             tint, strength = (255, 255, 255), 0.0
         elif mood == "sleeping":
-            self._happy_bounce_elapsed = 0.0
+            self._happy_jump_elapsed = 0.0
+            self._bug_kill_elapsed = 0.0
             # One-shot close: blink_1 briefly, then hold on blink_2
             # (closed eyes) for as long as sleeping persists, rather than
             # looping back open like the idle blink does.
@@ -166,7 +208,8 @@ class DeskSpiritScene(Scene):
             )
             tint, strength = MOOD_TINTS["sleeping"]
         else:
-            self._happy_bounce_elapsed = 0.0
+            self._happy_jump_elapsed = 0.0
+            self._bug_kill_elapsed = 0.0
             self._sleep_elapsed = 0.0
             sprite = self._idle_animation.current()
             tint, strength = MOOD_TINTS[mood]
