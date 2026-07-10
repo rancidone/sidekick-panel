@@ -21,7 +21,7 @@ from magicpanel.sprite import ASSET_DIR, IdleAnimator, Sprite
 
 BLINK_HOLD = 0.08
 STAR_HOLD = 0.35
-DOUBLE_BLINK_CHANCE = 0.2
+DOUBLE_BLINK_CHANCE = 0.06
 HAPPY_JUMP_STEP_SECONDS = 0.09
 HAPPY_JUMP_HEIGHTS = (0, 1, 2, 1, 0)
 BUG_KILL_STEP_SECONDS = 0.4
@@ -135,7 +135,7 @@ class DeskSpiritScene(Scene):
         self._idle_animation = IdleAnimator(
             base,
             [
-                (blink_sequence, 4.0, 9.0),
+                (blink_sequence, 16.0, 32.0),
                 (star_sequence, 4.0, 8.0),
             ],
             rng=self._idle_animation_rng,
