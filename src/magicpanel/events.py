@@ -92,6 +92,11 @@ async def send_event(
     try:
         writer.write(encode_event(event, **fields))
         await writer.drain()
+        # Record only after a successful write, so the log reflects events
+        # that actually reached the socket.
+        from magicpanel import eventlog
+
+        eventlog.record("sent", event, dict(fields) or None)
     finally:
         writer.close()
         await writer.wait_closed()

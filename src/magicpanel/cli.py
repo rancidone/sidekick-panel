@@ -25,8 +25,8 @@ KNOWN_EVENTS = {
     "incident_resolved": "Desk Spirit: clears angry",
     "deploy_started": "Desk Spirit: casting spells (until deploy_finished)",
     "deploy_finished": "Desk Spirit: clears casting spells",
-    "ci_build_started": "Desk Spirit: breathing fire (until ci_build_finished)",
-    "ci_build_finished": "Desk Spirit: clears breathing fire",
+    "ci_build_started": "Desk Spirit: casting spells (until ci_build_finished)",
+    "ci_build_finished": "Desk Spirit: clears casting spells",
 }
 
 KNOWN_SCENES = ["desk_spirit", "arcane_tree"]
@@ -119,6 +119,28 @@ def _cmd_watch(args: argparse.Namespace) -> None:
             watch_repos(repos, interval=interval)
         except KeyboardInterrupt:
             print("\nstopped.")
+
+
+def _cmd_log(args: argparse.Namespace) -> None:
+    from magicpanel import eventlog
+
+    direction = None
+    if args.sent:
+        direction = "sent"
+    elif args.received:
+        direction = "recv"
+
+    entries = eventlog.read(limit=args.n, direction=direction)
+    if not entries:
+        print("no events logged yet.")
+        print(f"log: {eventlog.default_log_path()}")
+        return
+    for entry in entries:
+        arrow = "->" if entry.get("dir") == "sent" else "<-"
+        fields = entry.get("fields") or {}
+        extra = "  " + " ".join(f"{k}={v}" for k, v in fields.items()) if fields else ""
+        pid = entry.get("pid", "?")
+        print(f"{entry['ts']}  {arrow} {entry['event']:<20} (pid {pid}){extra}")
 
 
 def _cmd_serve(_args: argparse.Namespace) -> None:
@@ -255,6 +277,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the always-on desktop watcher: heartbeat + GitHub polling",
     )
     serve_parser.set_defaults(func=_cmd_serve)
+
+    log_parser = subparsers.add_parser(
+        "log", help="show the event log (what was sent/received, and when)"
+    )
+    log_parser.add_argument(
+        "-n", type=int, default=50, help="show the last N entries (default: 50)"
+    )
+    log_group = log_parser.add_mutually_exclusive_group()
+    log_group.add_argument(
+        "--sent", action="store_true", help="only events sent by emitters"
+    )
+    log_group.add_argument(
+        "--received", action="store_true", help="only events the engine received"
+    )
+    log_parser.set_defaults(func=_cmd_log)
 
     track_parser = subparsers.add_parser(
         "track", help="track a repo: install its commit hook and add it to config"
