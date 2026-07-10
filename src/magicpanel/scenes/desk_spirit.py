@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import random
 
+from magicpanel import enginelog
 from magicpanel.canvas import Canvas
 from magicpanel.liveness import LivenessTracker
 from magicpanel.reactions import ReactionEngine, ReactionKind, ReactionRule
@@ -60,13 +61,25 @@ RULES = [
         "deploy_started",
         end_event="deploy_finished",
     ),
+    # CI builds reuse the casting-spells animation for now: breathing_fire
+    # has no dedicated art (only a tint that reads as "angry"), whereas
+    # casting reads as active, purposeful work. Swap back once fire art
+    # exists.
     ReactionRule(
-        "breathing_fire",
+        "casting_spells",
         ReactionKind.DURATION_BOUND,
         "ci_build_started",
         end_event="ci_build_finished",
     ),
 ]
+
+# Mood -> the event that ends it (for the engine log), so a transition
+# reads as e.g. "casting_spells (clears on ci_build_finished)".
+_MOOD_CLEARS = {
+    rule.name: (rule.resolve_event or rule.end_event)
+    for rule in RULES
+    if rule.resolve_event or rule.end_event
+}
 
 # Priority order when multiple moods are simultaneously active.
 MOOD_PRIORITY = [
@@ -143,6 +156,7 @@ class DeskSpiritScene(Scene):
         self._happy_jump_elapsed = 0.0
         self._bug_kill_elapsed = 0.0
         self._sleep_elapsed = 0.0
+        self._last_logged_mood: str | None = None
 
     def handle_event(self, event: dict) -> None:
         event_name = event.get("event")
@@ -165,6 +179,12 @@ class DeskSpiritScene(Scene):
         canvas.clear(BACKGROUND)
 
         mood = self._current_mood()
+        if mood != self._last_logged_mood:
+            clears = _MOOD_CLEARS.get(mood)
+            detail = f" (clears on {clears})" if clears else ""
+            enginelog.log(f"mood: {self._last_logged_mood or 'baseline'} -> {mood}{detail}")
+            self._last_logged_mood = mood
+
         jump_offset = 0
         if mood == "happy":
             self._sleep_elapsed = 0.0

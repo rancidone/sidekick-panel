@@ -14,7 +14,9 @@ import asyncio
 import queue
 import threading
 
-from magicpanel import loop
+import traceback
+
+from magicpanel import enginelog, eventlog, loop
 from magicpanel.canvas import Canvas, PygameCanvas
 from magicpanel.events import EventServer
 from magicpanel.liveness import LivenessTracker
@@ -67,11 +69,24 @@ def main() -> None:
             except queue.Empty:
                 break
             liveness.mark_seen()
+            event_name = payload.get("event")
+            eventlog.record(
+                "recv",
+                event_name if isinstance(event_name, str) else None,
+                {k: v for k, v in payload.items() if k != "event"},
+            )
             scene_manager.handle_event(payload)
 
         scene_manager.render(canvas, dt)
 
-    loop.run(canvas, frame_callback)
+    enginelog.log("engine started")
+    try:
+        loop.run(canvas, frame_callback)
+    except Exception:
+        enginelog.log("engine crashed:\n" + traceback.format_exc())
+        raise
+    finally:
+        enginelog.log("engine stopped")
 
 
 if __name__ == "__main__":

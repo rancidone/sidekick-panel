@@ -295,3 +295,85 @@ def test_config_heartbeat_roundtrip(tmp_path: Path) -> None:
     assert loaded.heartbeat_enabled is False
     assert loaded.heartbeat_interval == 5.0
     assert loaded.idle_timeout == 30.0
+
+
+# --- event log ------------------------------------------------------------
+
+def test_eventlog_roundtrip(tmp_path: Path) -> None:
+    from magicpanel import eventlog
+
+    log = tmp_path / "events.jsonl"
+    eventlog.record("sent", "production_incident", {"severity": "high"}, path=log)
+    eventlog.record("recv", "production_incident", {"severity": "high"}, path=log)
+
+    entries = eventlog.read(log)
+    assert [e["event"] for e in entries] == ["production_incident", "production_incident"]
+    assert [e["dir"] for e in entries] == ["sent", "recv"]
+    assert entries[0]["fields"] == {"severity": "high"}
+    assert "ts" in entries[0] and "pid" in entries[0]
+
+
+def test_eventlog_skips_heartbeat(tmp_path: Path) -> None:
+    from magicpanel import eventlog
+
+    log = tmp_path / "events.jsonl"
+    eventlog.record("sent", "heartbeat", path=log)
+    eventlog.record("sent", "git_commit", path=log)
+    assert [e["event"] for e in eventlog.read(log)] == ["git_commit"]
+
+
+def test_eventlog_filter_and_limit(tmp_path: Path) -> None:
+    from magicpanel import eventlog
+
+    log = tmp_path / "events.jsonl"
+    for i in range(5):
+        eventlog.record("sent", f"e{i}", path=log)
+        eventlog.record("recv", f"e{i}", path=log)
+
+    assert len(eventlog.read(log, limit=3)) == 3
+    recv = eventlog.read(log, direction="recv")
+    assert all(e["dir"] == "recv" for e in recv) and len(recv) == 5
+
+
+def test_eventlog_missing_file_is_empty(tmp_path: Path) -> None:
+    from magicpanel import eventlog
+
+    assert eventlog.read(tmp_path / "nope.jsonl") == []
+
+
+def test_eventlog_rolls_when_oversized(tmp_path: Path, monkeypatch) -> None:
+    from magicpanel import eventlog
+
+    monkeypatch.setattr(eventlog, "_MAX_BYTES", 500)
+    log = tmp_path / "events.jsonl"
+    for i in range(200):
+        eventlog.record("sent", f"event_number_{i}", path=log)
+
+    # Stays bounded, keeps the most recent events, and remains valid JSONL.
+    assert log.stat().st_size <= 500
+    entries = eventlog.read(log)
+    assert entries and entries[-1]["event"] == "event_number_199"
+    assert entries[0]["event"] != "event_number_0"  # oldest were dropped
+
+
+# --- engine log -----------------------------------------------------------
+
+def test_enginelog_writes_timestamped_line(tmp_path: Path) -> None:
+    from magicpanel import enginelog
+
+    log = tmp_path / "engine.log"
+    enginelog.log("mood: baseline -> casting_spells (clears on ci_build_finished)", path=log)
+    text = log.read_text()
+    assert "casting_spells" in text and "clears on ci_build_finished" in text
+    assert text.count("\n") == 1
+
+
+def test_enginelog_rolls_when_oversized(tmp_path: Path, monkeypatch) -> None:
+    from magicpanel import enginelog
+
+    monkeypatch.setattr(enginelog, "_MAX_BYTES", 400)
+    log = tmp_path / "engine.log"
+    for i in range(200):
+        enginelog.log(f"mood transition number {i}", path=log)
+    assert log.stat().st_size <= 400
+    assert "number 199" in log.read_text()
