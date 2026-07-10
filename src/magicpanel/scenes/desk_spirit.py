@@ -42,6 +42,7 @@ MOOD_TINTS = {
 }
 
 RULES = [
+    ReactionRule("happy", ReactionKind.TRANSIENT, "git_commit", duration_seconds=2.0),
     ReactionRule("happy", ReactionKind.TRANSIENT, "tests_passed", duration_seconds=4.0),
     ReactionRule("happy", ReactionKind.TRANSIENT, "build_passed", duration_seconds=4.0),
     ReactionRule(
