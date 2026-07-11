@@ -64,7 +64,7 @@ BUG_KILL_TOTAL_SECONDS = (
 # Sprite-local (i.e. relative to the wizard's own origin, not the canvas)
 # position of the wand tip in the cast pose, used as the fireball's launch
 # point regardless of where the wizard is drawn on the panel.
-WAND_TIP_OFFSET = (48, 37)
+WAND_TIP_OFFSET = (48, 38)
 # Sprite-local rest position of the hand at the wizard's side (base/idle
 # pose — arm down, wand hidden in the sleeve/robe), used as the start point
 # for the wand-reveal animation: the wand telescopes out from here toward
@@ -74,6 +74,12 @@ WAND_TIP_OFFSET = (48, 37)
 # mask (rows ~50-51, cols ~35-38) — the previous guess (40, 44) didn't
 # line up with the sprite's actual hand and made the wand look disconnected.
 HAND_REST_OFFSET = (37, 50)
+# The raised hand's grip point in wizard_cast_0001.png itself (the fist
+# blob at rows ~36-42, cols ~30-37) — distinct from HAND_REST_OFFSET, which
+# is the arm-down pose's hand and only applies during the reveal (still
+# shown over base_sprite). Using HAND_REST_OFFSET here too was the bug:
+# the held wand pivoted from the wrong hand once the raised pose took over.
+HAND_CAST_OFFSET = (38, 41)
 # Fraction of the cast phase spent on the reveal (procedural wand growing
 # out) before switching to the cast_sprite's raised-arm pose for the
 # remaining charge-up shimmer.
@@ -98,6 +104,30 @@ WAND_TIP_HALF_WIDTH = 0.4
 # .masked() can erase only the wand and let the procedural one (already
 # built for the reveal) stand in for it the rest of the way too.
 WAND_MASK_REGION = (33, 35, 50, 42)
+
+# Casting glow: an actual point light (radial falloff — see Sprite.draw's
+# light_origin/light_radius) centered on the wand tip itself — that's where
+# the projectile is actually forming — rather than a flat tint over the
+# whole sprite, so the hand/sleeve catch it brightest and the hat/robe
+# hem less the farther they are from it. Builds through the whole cast
+# phase, shifts warmer as it goes, then flashes bright at the instant the
+# projectile is created.
+CAST_LIGHT_COOL_COLOR = (255, 250, 235)
+CAST_LIGHT_HOT_COLOR = (255, 80, 30)
+CAST_LIGHT_FLASH_COLOR = (255, 235, 210)
+CAST_LIGHT_MAX_STRENGTH = 0.8
+CAST_LIGHT_RADIUS = 34.0
+CAST_FLASH_SECONDS = 0.15
+CAST_FLASH_MAX_STRENGTH = 0.95
+
+# Idle chest-star pulse: rides the same point-light mechanism as the
+# cast-phase glow (see Sprite.draw's light_origin/light_radius), centered
+# on the star's own pixels (sampled from wizard_0001.png's yellow star
+# blob, bbox x17-25/y47-55) so it brightens the star and bleeds softly
+# onto the surrounding robe rather than stopping hard at its outline.
+STAR_GLOW_CENTER = (21, 51)
+STAR_GLOW_RADIUS = 9
+STAR_GLOW_COLOR = (255, 226, 140)
 
 # Comet ("single-fireball") flight-progress tuning: starts as a single
 # pixel mote and grows a ring/tail as it nears the bug, like a tiny comet
@@ -312,6 +342,16 @@ class DeskSpiritScene(Scene):
         star_2 = Sprite(ASSET_DIR / "wizard_star_pulse_0002.png")
         star_3 = Sprite(ASSET_DIR / "wizard_star_pulse_0003.png")
         star_4 = Sprite(ASSET_DIR / "wizard_star_pulse_0004.png")
+        # A soft glow rides along with the star-pulse frames (brightest at
+        # the sequence's middle, dim at the in/out ends) rather than the
+        # raster art alone — identity-keyed since IdleAnimator only exposes
+        # the current Sprite, not a phase/index into its sequence.
+        self._star_glow_strengths = {
+            star_1: 0.35,
+            star_2: 0.85,
+            star_3: 0.85,
+            star_4: 0.35,
+        }
 
         def blink_sequence() -> list[tuple[Sprite, float]]:
             seq = [(blink_1, BLINK_HOLD), (blink_2, BLINK_HOLD)]
@@ -504,13 +544,24 @@ class DeskSpiritScene(Scene):
             canvas.set_pixel(rx, ry, ray)
 
     def _draw_wand_line(
-        self, canvas: Canvas, x0: float, y0: float, x1: float, y1: float
+        self,
+        canvas: Canvas,
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float,
+        glow_tint: tuple[int, int, int] | None = None,
+        glow_strength: float = 0.0,
     ) -> None:
         """The wand itself: a proper tapered staff (beefy at the hand,
         narrowing to a point) with the same three-tone treatment as the
         raster art it hands off to (dark outline, mid-brown core darkening
-        toward the tip), rather than a thin uniform stroke — used only
-        while it's telescoping out during the reveal beat.
+        toward the tip), rather than a thin uniform stroke.
+
+        `glow_tint`/`glow_strength` blend the whole wand toward the same
+        casting-glow color as the wizard's body (see the cast_charge/flash
+        block in render()), so it picks up the same warming/flash rather
+        than staying a fixed brown regardless of how charged the spell is.
         """
         dx, dy = x1 - x0, y1 - y0
         length = math.hypot(dx, dy)
@@ -527,10 +578,23 @@ class DeskSpiritScene(Scene):
         # actually hit zero here: any length below 0.5 rounds to 0 (not
         # just sub-0.01 ones), which crashed the u/u_max division below.
         u_max = max(1, round(length))
+
+        def lit(color: tuple[int, int, int]) -> tuple[int, int, int]:
+            if not glow_tint or glow_strength <= 0:
+                return color
+            s = min(1.0, glow_strength)
+            return tuple(
+                round(a * (1 - s) + b * s) for a, b in zip(color, glow_tint)
+            )
+
+        outline = lit(WAND_OUTLINE_COLOR)
         for u in range(u_max + 1):
             t = u / u_max
-            core = tuple(
-                round(a + (b - a) * t) for a, b in zip(WAND_CORE_COLOR, WAND_SHADOW_COLOR)
+            core = lit(
+                tuple(
+                    round(a + (b - a) * t)
+                    for a, b in zip(WAND_CORE_COLOR, WAND_SHADOW_COLOR)
+                )
             )
             half_width = (
                 WAND_BASE_HALF_WIDTH
@@ -538,7 +602,7 @@ class DeskSpiritScene(Scene):
             )
             w = max(0, round(half_width))
             for v in range(-w, w + 1):
-                color = WAND_OUTLINE_COLOR if abs(v) == w and w > 0 else core
+                color = outline if abs(v) == w and w > 0 else core
                 px = x0 + fx * u + perp_x * v
                 py = y0 + fy * u + perp_y * v
                 canvas.set_pixel(round(px), round(py), color)
@@ -620,6 +684,10 @@ class DeskSpiritScene(Scene):
             self._last_logged_mood = mood
 
         jump_offset = 0
+        # None means "uniform tint, no point light" — only the bug_kill
+        # cast/launch glow sets this (see the cast_charge block below).
+        light_origin = None
+        light_radius = 1.0
         # Callables rather than (Sprite, x, y) tuples so procedurally-drawn
         # effects (the magic-missile bolts) can share the same "goes on top
         # of the wizard sprite" draw order as image-based overlays (the bug,
@@ -728,6 +796,28 @@ class DeskSpiritScene(Scene):
                 sprite = self._happy_jump_sprites[cheer_step]
                 jump_offset = -HAPPY_JUMP_HEIGHTS[cheer_step]
             tint, strength = (255, 255, 255), 0.0
+
+            # Casting glow: builds through the whole cast phase (reveal +
+            # charge-up), shifting warmer as it goes, then flashes at the
+            # instant the projectile is created — independent of `phase`'s
+            # cast/travel split since the flash spills a beat into travel.
+            cast_charge = (elapsed - t_announce_end) / BUG_KILL_CAST_SECONDS
+            if 0.0 <= cast_charge <= 1.0:
+                tint = tuple(
+                    round(a + (b - a) * cast_charge)
+                    for a, b in zip(CAST_LIGHT_COOL_COLOR, CAST_LIGHT_HOT_COLOR)
+                )
+                strength = CAST_LIGHT_MAX_STRENGTH * cast_charge
+                light_origin = WAND_TIP_OFFSET
+                light_radius = CAST_LIGHT_RADIUS
+            else:
+                since_launch = elapsed - t_cast_end
+                if 0.0 <= since_launch < CAST_FLASH_SECONDS:
+                    flash_t = 1.0 - since_launch / CAST_FLASH_SECONDS
+                    tint = CAST_LIGHT_FLASH_COLOR
+                    strength = CAST_FLASH_MAX_STRENGTH * flash_t
+                    light_origin = WAND_TIP_OFFSET
+                    light_radius = CAST_LIGHT_RADIUS
 
             if phase != self._bug_kill_phase:
                 if phase == "announce":
@@ -847,8 +937,8 @@ class DeskSpiritScene(Scene):
                     tip_y = hand_y + math.sin(angle) * length
                     sprite = self._base_sprite
                     overlays.append(
-                        lambda c, x0=hand_x, y0=hand_y, x1=tip_x, y1=tip_y: (
-                            self._draw_wand_line(c, x0, y0, x1, y1)
+                        lambda c, x0=hand_x, y0=hand_y, x1=tip_x, y1=tip_y, gt=tint, gs=strength: (
+                            self._draw_wand_line(c, x0, y0, x1, y1, gt, gs)
                         )
                     )
                     overlays.append(
@@ -859,14 +949,16 @@ class DeskSpiritScene(Scene):
                 else:
                     # Raise + charge-up: raised-arm pose (wand erased from
                     # its raster art — see _cast_sprite_no_wand) now with
-                    # the wand held statically at full length/final angle,
-                    # and the shimmer settling at its fixed tip.
+                    # the wand held statically at full length/final angle
+                    # from the pose's own raised-hand grip point, and the
+                    # shimmer settling at its fixed tip.
                     post_reveal = (charge - reveal_end) / (1.0 - reveal_end)
-                    hx, hy = hand
+                    hx = wizard_origin_x + HAND_CAST_OFFSET[0]
+                    hy = HAND_CAST_OFFSET[1]
                     wx, wy = wand_tip
                     overlays.append(
-                        lambda c, x0=hx, y0=hy, x1=wx, y1=wy: (
-                            self._draw_wand_line(c, x0, y0, x1, y1)
+                        lambda c, x0=hx, y0=hy, x1=wx, y1=wy, gt=tint, gs=strength: (
+                            self._draw_wand_line(c, x0, y0, x1, y1, gt, gs)
                         )
                     )
                     overlays.append(
@@ -959,14 +1051,17 @@ class DeskSpiritScene(Scene):
                     )
 
             if phase in ("travel", "impact"):
-                # Held at its final resting position/angle — same wand the
-                # reveal built up to, still in hand through the strike,
-                # since _cast_sprite_no_wand no longer draws one itself.
-                hx, hy = hand
+                # Held from the raised pose's own grip point at its final
+                # resting angle — still in hand through the strike, since
+                # _cast_sprite_no_wand no longer draws one itself. Only
+                # lit if the launch flash is still spilling over (see the
+                # cast_charge/flash block above); normally unlit by here.
+                hx = wizard_origin_x + HAND_CAST_OFFSET[0]
+                hy = HAND_CAST_OFFSET[1]
                 wx, wy = wand_tip
                 overlays.append(
-                    lambda c, x0=hx, y0=hy, x1=wx, y1=wy: (
-                        self._draw_wand_line(c, x0, y0, x1, y1)
+                    lambda c, x0=hx, y0=hy, x1=wx, y1=wy, gt=tint, gs=strength: (
+                        self._draw_wand_line(c, x0, y0, x1, y1, gt, gs)
                     )
                 )
         elif mood == "casting_spells":
@@ -997,10 +1092,20 @@ class DeskSpiritScene(Scene):
             self._sleep_elapsed = 0.0
             sprite = self._idle_animation.current()
             tint, strength = MOOD_TINTS[mood]
+            glow_strength = self._star_glow_strengths.get(sprite)
+            if glow_strength is not None:
+                # Same point-light mechanism as the cast-phase glow: blends
+                # the star's own pixels (and the robe immediately around
+                # them) toward a warm gold, rather than a separate overlay
+                # with no access to what's actually already been drawn.
+                tint = STAR_GLOW_COLOR
+                strength = glow_strength
+                light_origin = STAR_GLOW_CENTER
+                light_radius = STAR_GLOW_RADIUS
 
         origin_x = WIZARD_LEFT_MARGIN
         origin_y = (canvas.height - sprite.height) // 2 + jump_offset
-        sprite.draw(canvas, origin_x, origin_y, tint, strength)
+        sprite.draw(canvas, origin_x, origin_y, tint, strength, light_origin, light_radius)
         for draw_overlay in overlays:
             draw_overlay(canvas)
 
