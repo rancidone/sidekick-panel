@@ -19,6 +19,9 @@ class Sprite:
         import pygame
 
         surface = pygame.image.load(str(path)).convert_alpha()
+        self._load_from_surface(surface)
+
+    def _load_from_surface(self, surface) -> None:
         self.width = surface.get_width()
         self.height = surface.get_height()
         self._pixels: list[list[tuple[int, int, int, int] | None]] = []
@@ -28,6 +31,48 @@ class Sprite:
                 r, g, b, a = surface.get_at((x, y))
                 row.append(None if a == 0 else (r, g, b, a))
             self._pixels.append(row)
+
+    def rotated(self, degrees: float) -> "Sprite":
+        """A new Sprite rotated by `degrees` (pygame convention: positive is
+        counterclockwise on screen). Used for projectiles whose art is drawn
+        pointing along one fixed axis but that travel at an arbitrary angle,
+        e.g. the bug-kill fireball.
+        """
+        import pygame
+
+        source = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        for y in range(self.height):
+            for x in range(self.width):
+                pixel = self._pixels[y][x]
+                if pixel is not None:
+                    source.set_at((x, y), pixel)
+        rotated_surface = pygame.transform.rotate(source, degrees)
+        result = Sprite.__new__(Sprite)
+        result._load_from_surface(rotated_surface)
+        return result
+
+    def masked(
+        self,
+        region: tuple[int, int, int, int],
+        colors: set[tuple[int, int, int]],
+    ) -> "Sprite":
+        """A copy with any pixel inside `region` (x0, y0, x1, y1, inclusive)
+        whose RGB is in `colors` made transparent — e.g. erasing a raster
+        wand from a wizard pose so a procedural one can stand in for it
+        without touching the original asset file or the shared Sprite
+        instance (other moods/poses may still want the untouched art).
+        """
+        x0, y0, x1, y1 = region
+        result = Sprite.__new__(Sprite)
+        result.width = self.width
+        result.height = self.height
+        result._pixels = [row[:] for row in self._pixels]
+        for y in range(max(0, y0), min(self.height, y1 + 1)):
+            for x in range(max(0, x0), min(self.width, x1 + 1)):
+                pixel = result._pixels[y][x]
+                if pixel is not None and pixel[:3] in colors:
+                    result._pixels[y][x] = None
+        return result
 
     def draw(
         self,

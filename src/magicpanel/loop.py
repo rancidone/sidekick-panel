@@ -14,7 +14,7 @@ from magicpanel.canvas import Canvas
 
 FrameCallback = Callable[[Canvas, float], None]
 
-FPS = 30
+FPS = 60
 FRAME_SECONDS = 1.0 / FPS
 
 

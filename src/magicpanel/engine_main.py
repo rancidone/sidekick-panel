@@ -13,17 +13,34 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
+from pathlib import Path
 
 import traceback
 
 from magicpanel import enginelog, eventlog, loop
 from magicpanel.canvas import Canvas, PygameCanvas
 from magicpanel.events import EventServer
+from magicpanel.hot_reload import HotReloader
 from magicpanel.liveness import LivenessTracker
-from magicpanel.scenes.arcane_tree import ArcaneTreeScene
-from magicpanel.scenes.desk_spirit import DeskSpiritScene
+from magicpanel.scenes import arcane_tree as arcane_tree_module
+from magicpanel.scenes import desk_spirit as desk_spirit_module
+from magicpanel.scenes import manager as manager_module
 from magicpanel.scenes.manager import SceneManager
+from magicpanel.sprite import ASSET_DIR
 from magicpanel.state import AccumulatingStateStore
+
+# Reloaded in this order (dependencies first) whenever their source changes.
+# Deliberately excludes engine_main/canvas/loop/events themselves: those
+# hold the open pygame display and the event-server thread, which a reload
+# can't safely swap out mid-run.
+_HOT_RELOAD_MODULES = [
+    "magicpanel.sprite",
+    "magicpanel.reactions",
+    "magicpanel.scenes.base",
+    "magicpanel.scenes.desk_spirit",
+    "magicpanel.scenes.arcane_tree",
+    "magicpanel.scenes.manager",
+]
 
 
 def _run_event_server(event_queue: "queue.Queue[dict]") -> None:
@@ -49,12 +66,33 @@ def main() -> None:
     # convert_alpha() requires a display surface to already be set.
     canvas = PygameCanvas()
 
-    scene_manager = SceneManager(
-        [
-            DeskSpiritScene(liveness, accumulator=accumulator),
-            ArcaneTreeScene(),
-        ],
-        initial="desk_spirit",
+    def build_scene_manager(initial: str = "desk_spirit") -> SceneManager:
+        # Read the scene classes off the module objects (rather than using
+        # names bound by a plain `from ... import Class`) so that after a
+        # hot reload — which mutates these module objects in place — this
+        # always picks up the reloaded class, not a stale reference to the
+        # pre-reload one.
+        return manager_module.SceneManager(
+            [
+                desk_spirit_module.DeskSpiritScene(
+                    liveness, accumulator=accumulator
+                ),
+                arcane_tree_module.ArcaneTreeScene(),
+            ],
+            initial=initial,
+        )
+
+    scene_manager = build_scene_manager()
+
+    def rebuild_scenes() -> None:
+        nonlocal scene_manager
+        scene_manager = build_scene_manager(scene_manager.active_name)
+        enginelog.log("hot-reload: scenes rebuilt")
+
+    hot_reloader = HotReloader(
+        [Path(__file__).resolve().parent, ASSET_DIR],
+        _HOT_RELOAD_MODULES,
+        rebuild_scenes,
     )
 
     server_thread = threading.Thread(
@@ -63,6 +101,7 @@ def main() -> None:
     server_thread.start()
 
     def frame_callback(canvas: Canvas, dt: float) -> None:
+        hot_reloader.tick(dt)
         while True:
             try:
                 payload = event_queue.get_nowait()

@@ -45,7 +45,7 @@ def main(argv: list[str]) -> int:
         return subprocess.run([uv, "tool", "uninstall", "magicpanel"]).returncode
 
     rc = subprocess.run(
-        [uv, "tool", "install", "--editable", "--force", str(ROOT)]
+        [uv, "tool", "install", "--editable", "--force", "--python", "3.12", str(ROOT)]
     ).returncode
     if rc != 0:
         return rc
