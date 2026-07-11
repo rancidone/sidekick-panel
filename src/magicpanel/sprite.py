@@ -7,6 +7,7 @@ non-Pygame canvas backend.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 Color = tuple[int, int, int]
@@ -81,22 +82,40 @@ class Sprite:
         origin_y: int,
         tint: Color = (255, 255, 255),
         tint_strength: float = 0.0,
+        light_origin: tuple[float, float] | None = None,
+        light_radius: float = 1.0,
     ) -> None:
         """Draw the sprite onto canvas, alpha-blended toward `tint` by
-        `tint_strength` (0 = original colors, 1 = solid tint color). A
-        blend (rather than a multiply) keeps the sprite's shading visible
-        on dark source art instead of crushing it toward black.
+        `tint_strength` (0 = original colors, 1 = solid tint color at
+        `light_origin` itself). A blend (rather than a multiply) keeps the
+        sprite's shading visible on dark source art instead of crushing it
+        toward black.
+
+        `light_origin`, if given (sprite-local coordinates, e.g. off the
+        top edge for an overhead source), makes this a radial falloff from
+        that point out to `light_radius` — squared, not linear, so it reads
+        as a dramatic, concentrated falloff (bright near the source, then
+        dropping off fast) rather than a gentle wash that's still fairly lit
+        all the way out to the edge of the radius.
         """
+        has_light = light_origin is not None
+        lx, ly = light_origin if has_light else (0.0, 0.0)
         for y in range(self.height):
             for x in range(self.width):
                 pixel = self._pixels[y][x]
                 if pixel is None:
                     continue
+                if has_light:
+                    dist = math.hypot(x - lx, y - ly)
+                    falloff = max(0.0, 1.0 - dist / light_radius)
+                    strength = tint_strength * falloff * falloff
+                else:
+                    strength = tint_strength
                 r, g, b, _a = pixel
                 blended = (
-                    int(r * (1 - tint_strength) + tint[0] * tint_strength),
-                    int(g * (1 - tint_strength) + tint[1] * tint_strength),
-                    int(b * (1 - tint_strength) + tint[2] * tint_strength),
+                    int(r * (1 - strength) + tint[0] * strength),
+                    int(g * (1 - strength) + tint[1] * strength),
+                    int(b * (1 - strength) + tint[2] * strength),
                 )
                 canvas.set_pixel(origin_x + x, origin_y + y, blended)
 

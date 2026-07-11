@@ -83,6 +83,13 @@ def main() -> None:
         )
 
     scene_manager = build_scene_manager()
+    # Only ever updated after a frame actually renders successfully, so a
+    # hot-reloaded scene that imports fine but blows up at render/event time
+    # (a bug that only manifests once .render()/.handle_event() actually
+    # runs — reload()'s own try/except in HotReloader can't catch that,
+    # since it only wraps the reload+construction step) has something to
+    # fall back to instead of taking the whole engine down with it.
+    last_good_scene_manager = scene_manager
 
     def rebuild_scenes() -> None:
         nonlocal scene_manager
@@ -101,6 +108,7 @@ def main() -> None:
     server_thread.start()
 
     def frame_callback(canvas: Canvas, dt: float) -> None:
+        nonlocal scene_manager, last_good_scene_manager
         hot_reloader.tick(dt)
         while True:
             try:
@@ -114,9 +122,31 @@ def main() -> None:
                 event_name if isinstance(event_name, str) else None,
                 {k: v for k, v in payload.items() if k != "event"},
             )
-            scene_manager.handle_event(payload)
+            try:
+                scene_manager.handle_event(payload)
+            except Exception:
+                enginelog.log(
+                    "hot-reload: handle_event crashed, reverting to last "
+                    "working scenes:\n" + traceback.format_exc()
+                )
+                scene_manager = last_good_scene_manager
 
-        scene_manager.render(canvas, dt)
+        try:
+            scene_manager.render(canvas, dt)
+            last_good_scene_manager = scene_manager
+        except Exception:
+            enginelog.log(
+                "hot-reload: render crashed, reverting to last working "
+                "scenes:\n" + traceback.format_exc()
+            )
+            scene_manager = last_good_scene_manager
+            try:
+                scene_manager.render(canvas, dt)
+            except Exception:
+                # The "last good" one shouldn't be able to fail here (it
+                # rendered fine last frame), but don't let a frame that
+                # still can't render take the engine down either way.
+                pass
 
     enginelog.log("engine started")
     try:
