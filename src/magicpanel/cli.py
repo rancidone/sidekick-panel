@@ -148,6 +148,7 @@ def _cmd_serve(_args: argparse.Namespace) -> None:
 
     from magicpanel.desktop import config as config_mod
     from magicpanel.desktop import heartbeat
+    from magicpanel.desktop import weather
     from magicpanel.desktop.github_actions import watch_repos
 
     cfg = config_mod.load()
@@ -165,6 +166,25 @@ def _cmd_serve(_args: argparse.Namespace) -> None:
             flush=True,
         )
 
+    if cfg.weather_enabled:
+        weather_thread = threading.Thread(
+            target=weather.run_weather,
+            args=(
+                cfg.weather_lat,
+                cfg.weather_lon,
+                cfg.weather_conditions_interval,
+                cfg.weather_solar_interval,
+            ),
+            daemon=True,
+        )
+        weather_thread.start()
+        print(
+            f"weather: sun position every {cfg.weather_solar_interval:.0f}s, "
+            f"conditions every {cfg.weather_conditions_interval:.0f}s "
+            f"({cfg.weather_lat}, {cfg.weather_lon})",
+            flush=True,
+        )
+
     repos = list(cfg.github_repos()) or [None]
     where = ", ".join(r or "current repo" for r in repos)
     print(
@@ -175,6 +195,36 @@ def _cmd_serve(_args: argparse.Namespace) -> None:
         watch_repos(repos, interval=cfg.github_interval)
     except KeyboardInterrupt:
         print("\nstopped.")
+
+
+def _cmd_weather(args: argparse.Namespace) -> None:
+    from magicpanel.desktop import config as config_mod
+    from magicpanel.desktop import weather
+
+    cfg = config_mod.load()
+    lat = args.lat if args.lat is not None else cfg.weather_lat
+    lon = args.lon if args.lon is not None else cfg.weather_lon
+
+    solar = weather.daylight_fields(lat, lon)
+    try:
+        conditions = weather.fetch_conditions(lat, lon)
+    except Exception as exc:  # best-effort CLI check, report whatever broke
+        print(f"could not reach Open-Meteo: {exc}", file=sys.stderr)
+        conditions = weather.CALM_CONDITIONS
+
+    fields = dict(
+        sky=solar.sky,
+        daylight=solar.daylight,
+        moon=solar.moon,
+        clouds=conditions.clouds,
+        fog=conditions.fog,
+        weather=conditions.weather,
+        wind=conditions.wind,
+    )
+    print(f"({lat}, {lon}):")
+    for key, value in fields.items():
+        print(f"  {key:<10} {value}")
+    _send("weather", **{k: str(v) for k, v in fields.items()})
 
 
 def _cmd_track(args: argparse.Namespace) -> None:
@@ -274,9 +324,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve_parser = subparsers.add_parser(
         "serve",
-        help="run the always-on desktop watcher: heartbeat + GitHub polling",
+        help="run the always-on desktop watcher: heartbeat + GitHub polling + weather",
     )
     serve_parser.set_defaults(func=_cmd_serve)
+
+    weather_parser = subparsers.add_parser(
+        "weather", help="fetch real sun position + conditions once and send them"
+    )
+    weather_parser.add_argument("--lat", type=float, default=None, help="latitude (default: config, else Las Vegas)")
+    weather_parser.add_argument("--lon", type=float, default=None, help="longitude (default: config, else Las Vegas)")
+    weather_parser.set_defaults(func=_cmd_weather)
 
     log_parser = subparsers.add_parser(
         "log", help="show the event log (what was sent/received, and when)"

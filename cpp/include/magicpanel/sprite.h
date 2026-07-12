@@ -21,4 +21,13 @@ void draw_sprite(Canvas& canvas,
                  Color tint = Color{255, 255, 255},
                  float tint_strength = 0.0f);
 
+void draw_sprite_projected_shadow(Canvas& canvas,
+                                  Sprite const& sprite,
+                                  int origin_x,
+                                  int origin_y,
+                                  int ground_y,
+                                  int cast_x,
+                                  Color shadow,
+                                  float strength);
+
 }  // namespace magicpanel

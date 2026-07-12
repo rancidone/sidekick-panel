@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import tempfile
 from pathlib import Path
 from typing import Awaitable, Callable
 
-DEFAULT_SOCKET_PATH = Path(tempfile.gettempdir()) / "magicpanel.sock"
+# Fixed rather than tempfile.gettempdir(): on macOS that resolves to a
+# per-process /var/folders/.../T path, which would silently disagree with
+# the C++ engine's hardcoded /tmp/magicpanel.sock (see cpp/src/host_main.cpp)
+# and every event would just fail to be delivered.
+DEFAULT_SOCKET_PATH = Path("/tmp/magicpanel.sock")
 
 EventHandler = Callable[[dict], Awaitable[None] | None]
 

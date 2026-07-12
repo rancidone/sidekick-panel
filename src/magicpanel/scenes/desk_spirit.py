@@ -347,10 +347,10 @@ class DeskSpiritScene(Scene):
         # raster art alone — identity-keyed since IdleAnimator only exposes
         # the current Sprite, not a phase/index into its sequence.
         self._star_glow_strengths = {
-            star_1: 0.35,
-            star_2: 0.85,
-            star_3: 0.85,
-            star_4: 0.35,
+            star_1: 0.15,
+            star_2: 0.4,
+            star_3: 0.4,
+            star_4: 0.15,
         }
 
         def blink_sequence() -> list[tuple[Sprite, float]]:

@@ -1,6 +1,7 @@
 #include "magicpanel/event.h"
 
 #include <cctype>
+#include <string>
 #include <sstream>
 
 namespace magicpanel {
@@ -54,6 +55,71 @@ std::optional<std::string> extract_string_field(std::string const& line,
   return std::nullopt;
 }
 
+std::optional<std::string> extract_scalar(std::string const& line, std::size_t& pos) {
+  while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos]))) {
+    ++pos;
+  }
+  if (pos >= line.size()) {
+    return std::nullopt;
+  }
+  if (line[pos] == '"') {
+    std::string value;
+    bool escaped = false;
+    for (++pos; pos < line.size(); ++pos) {
+      char ch = line[pos];
+      if (escaped) {
+        value.push_back(ch);
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else if (ch == '"') {
+        ++pos;
+        return value;
+      } else {
+        value.push_back(ch);
+      }
+    }
+    return std::nullopt;
+  }
+  std::size_t begin = pos;
+  while (pos < line.size() && line[pos] != ',' && line[pos] != '}') {
+    ++pos;
+  }
+  return trim(line.substr(begin, pos - begin));
+}
+
+void extract_top_level_fields(std::string const& line, Event& event) {
+  std::size_t pos = 1;
+  while (pos < line.size()) {
+    std::size_t quote = line.find('"', pos);
+    if (quote == std::string::npos) {
+      return;
+    }
+    std::size_t end_quote = line.find('"', quote + 1);
+    if (end_quote == std::string::npos) {
+      return;
+    }
+    std::string key = line.substr(quote + 1, end_quote - quote - 1);
+    std::size_t colon = line.find(':', end_quote + 1);
+    if (colon == std::string::npos) {
+      return;
+    }
+    pos = colon + 1;
+    auto value = extract_scalar(line, pos);
+    if (!value) {
+      return;
+    }
+    if (key != "event") {
+      event.fields[key] = *value;
+    }
+    std::size_t comma = line.find(',', pos);
+    if (comma == std::string::npos) {
+      return;
+    }
+    pos = comma + 1;
+  }
+}
+
 }  // namespace
 
 std::string Event::field_or(std::string const& key, std::string fallback) const {
@@ -73,9 +139,7 @@ std::optional<Event> decode_event_line(std::string const& line) {
 
   Event event;
   event.name = *name;
-  if (auto target = extract_string_field(cleaned, "to")) {
-    event.fields["to"] = *target;
-  }
+  extract_top_level_fields(cleaned, event);
   return event;
 }
 

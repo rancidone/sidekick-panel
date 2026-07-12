@@ -10,17 +10,21 @@ pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 
 add_library(magicpanel_core
   src/app.cpp
+  src/atmosphere.cpp
   src/canvas.cpp
   src/color.cpp
   src/drawing.cpp
   src/engine.cpp
+  src/environment.cpp
   src/event.cpp
   src/liveness.cpp
   src/reactions.cpp
+  src/render_layers.cpp
   src/scene.cpp
   src/scenes.cpp
   src/sprite.cpp
   src/state_store.cpp
+  src/status_panel.cpp
 )
 target_include_directories(magicpanel_core PUBLIC include generated)
 target_compile_options(magicpanel_core PRIVATE -Wall -Wextra -Wpedantic -fno-exceptions -fno-rtti)

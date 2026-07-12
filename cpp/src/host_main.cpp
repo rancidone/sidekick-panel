@@ -8,8 +8,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <deque>
 #include <string_view>
 #include <string>
 #include <thread>
@@ -19,6 +19,8 @@
 #include "magicpanel/engine.h"
 
 namespace {
+
+constexpr char kDefaultSocketPath[] = "/tmp/magicpanel.sock";
 
 class SdlCanvas final : public magicpanel::FrameBufferCanvas {
  public:
@@ -36,7 +38,7 @@ class SdlCanvas final : public magicpanel::FrameBufferCanvas {
                                SDL_WINDOWPOS_CENTERED,
                                width() * scale_,
                                height() * scale_,
-                               SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
+                               SDL_WINDOW_SHOWN);
     if (window_ == nullptr) {
       std::fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
       ok_ = false;
@@ -48,6 +50,7 @@ class SdlCanvas final : public magicpanel::FrameBufferCanvas {
       ok_ = false;
       return;
     }
+    SDL_RenderSetLogicalSize(renderer_, width() * scale_, height() * scale_);
     texture_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
                                  width(), height());
     if (texture_ == nullptr) {
@@ -202,9 +205,17 @@ class HostPlatform final : public magicpanel::Platform {
       fd_ = -1;
       return;
     }
-    ::listen(fd_, 4);
+    if (::listen(fd_, 4) < 0) {
+      std::perror("listen");
+      ::close(fd_);
+      fd_ = -1;
+      return;
+    }
     ::fcntl(fd_, F_SETFL, ::fcntl(fd_, F_GETFL, 0) | O_NONBLOCK);
+    std::printf("Listening for events on %s\n", path_.c_str());
   }
+
+  bool ok() const { return fd_ >= 0; }
 
   ~HostPlatform() override {
     if (fd_ >= 0) {
@@ -217,13 +228,6 @@ class HostPlatform final : public magicpanel::Platform {
   }
 
   bool poll_event(magicpanel::Event& event) override {
-    enqueue_demo_events();
-    if (!events_.empty()) {
-      event = events_.front();
-      events_.pop_front();
-      return true;
-    }
-
     accept_pending();
     char buf[256];
     for (auto it = clients_.begin(); it != clients_.end();) {
@@ -251,17 +255,20 @@ class HostPlatform final : public magicpanel::Platform {
     if (!decoded) {
       return false;
     }
-    events_.push_back(*decoded);
-    event = events_.front();
-    events_.pop_front();
+    event = *decoded;
     return true;
   }
 
   float now_seconds() override {
-    using clock = std::chrono::steady_clock;
-    static auto start = clock::now();
-    auto elapsed = clock::now() - start;
-    return std::chrono::duration<float>(elapsed).count();
+    // Wall-clock based (not process-start-relative): every scene animation —
+    // tree growth, cloud drift, etc. — is a function of this value, so a
+    // steady_clock-since-launch origin meant every hot-reload restart reset
+    // all of it back to the exact same starting phase. Wrapped to keep the
+    // magnitude small enough for float32 to still resolve sub-frame deltas.
+    using clock = std::chrono::system_clock;
+    double epoch_seconds = std::chrono::duration<double>(clock::now().time_since_epoch()).count();
+    constexpr double kWrapSeconds = 43200.0;  // 12h; float32 stays sub-ms precise at this scale
+    return static_cast<float>(std::fmod(epoch_seconds, kWrapSeconds));
   }
 
   void sleep_seconds(float seconds) override {
@@ -269,30 +276,6 @@ class HostPlatform final : public magicpanel::Platform {
   }
 
  private:
-  void enqueue_demo_events() {
-    float now = now_seconds();
-    if (demo_step_ == 0 && now > 0.2f) {
-      events_.push_back(magicpanel::Event{"heartbeat", {}});
-      ++demo_step_;
-    }
-    if (demo_step_ == 1 && now > 1.0f) {
-      events_.push_back(magicpanel::Event{"tests_passed", {}});
-      ++demo_step_;
-    }
-    if (demo_step_ == 2 && now > 5.0f) {
-      events_.push_back(magicpanel::Event{"bug_squashed", {}});
-      ++demo_step_;
-    }
-    if (demo_step_ == 3 && now > 10.0f) {
-      events_.push_back(magicpanel::Event{"switch_scene", {{"to", "arcane_tree"}}});
-      ++demo_step_;
-    }
-    if (demo_step_ == 4 && now > 14.0f) {
-      events_.push_back(magicpanel::Event{"switch_scene", {{"to", "desk_spirit"}}});
-      demo_step_ = 1;
-    }
-  }
-
   void accept_pending() {
     if (fd_ < 0) {
       return;
@@ -310,38 +293,48 @@ class HostPlatform final : public magicpanel::Platform {
   std::string path_;
   int fd_ = -1;
   std::vector<int> clients_;
-  std::deque<magicpanel::Event> events_;
   std::string pending_;
-  int demo_step_ = 0;
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
   bool terminal = false;
+  std::string socket_path = kDefaultSocketPath;
+  int scale = 8;
   for (int i = 1; i < argc; ++i) {
     if (std::string_view(argv[i]) == "--terminal") {
       terminal = true;
+    } else if (std::string_view(argv[i]) == "--socket" && i + 1 < argc) {
+      socket_path = argv[++i];
+    } else if (std::string_view(argv[i]) == "--scale" && i + 1 < argc) {
+      scale = std::max(1, std::atoi(argv[++i]));
     }
   }
 
   setvbuf(stdout, nullptr, _IONBF, 0);
   std::puts("Magic Panel C++ host");
   std::puts(terminal ? "Terminal truecolor emulator." : "SDL2 pixel emulator.");
-  std::puts("Demo events are injected automatically: heartbeat, tests_passed, bug_squashed, scene switch.");
-  std::puts("Manual event socket: /tmp/magicpanel-cpp.sock");
-  std::puts("Example: python3 -c \"import socket; s=socket.socket(socket.AF_UNIX); s.connect('/tmp/magicpanel-cpp.sock'); s.sendall(b'{\\\"event\\\":\\\"tests_passed\\\"}\\n')\"");
+  std::printf("Event socket: %s\n", socket_path.c_str());
+  std::puts("Python CLI examples:");
+  std::puts("  magicpanel send tests_passed");
+  std::puts("  magicpanel send bug_squashed");
+  std::puts("  magicpanel scene arcane_tree");
+  std::puts("Host options: --scale N, --terminal, --socket PATH");
   std::puts(terminal ? "Press Ctrl-C to stop." : "Close the window, press Escape, or press Ctrl-C to stop.");
 
   magicpanel::MagicPanelApp app("/tmp/magicpanel-cpp-state.json");
-  HostPlatform platform("/tmp/magicpanel-cpp.sock");
+  HostPlatform platform(socket_path);
+  if (!platform.ok()) {
+    return 1;
+  }
 
   if (terminal) {
     std::printf("\033[2J\033[H");
     TerminalCanvas canvas;
     magicpanel::run_engine(canvas, app.scenes(), app.liveness(), platform);
   } else {
-    SdlCanvas canvas;
+    SdlCanvas canvas(scale);
     if (!canvas.ok()) {
       return 1;
     }

@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "magicpanel/canvas.h"
+#include "magicpanel/environment.h"
 #include "magicpanel/event.h"
 
 namespace magicpanel {
@@ -21,6 +22,7 @@ class Scene {
 class SceneManager {
  public:
   SceneManager(std::vector<std::unique_ptr<Scene>> scenes, std::string initial);
+  SceneManager(std::vector<std::unique_ptr<Scene>> scenes, std::string initial, EnvironmentState* environment);
 
   std::string active_name() const;
   bool empty() const;
@@ -31,6 +33,7 @@ class SceneManager {
  private:
   std::unordered_map<std::string, std::unique_ptr<Scene>> scenes_;
   std::string active_name_;
+  EnvironmentState* environment_ = nullptr;
 };
 
 }  // namespace magicpanel

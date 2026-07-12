@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include "magicpanel/canvas.h"
+#include "magicpanel/render_layers.h"
 
 namespace magicpanel {
 
@@ -148,6 +149,30 @@ class LightSystem {
       for (int x = 0; x < canvas.width(); ++x) {
         canvas.set_pixel(x, y, shade(canvas.get_pixel(x, y), static_cast<float>(x),
                                      static_cast<float>(y)));
+      }
+    }
+  }
+
+  void apply_except(Canvas& canvas, Color transparent) const {
+    for (int y = 0; y < canvas.height(); ++y) {
+      for (int x = 0; x < canvas.width(); ++x) {
+        Color base = canvas.get_pixel(x, y);
+        if (base.r == transparent.r && base.g == transparent.g && base.b == transparent.b) {
+          continue;
+        }
+        canvas.set_pixel(x, y, shade(base, static_cast<float>(x), static_cast<float>(y)));
+      }
+    }
+  }
+
+  void apply_to_layers(LayeredCanvas& canvas, std::uint8_t layer_mask_bits) const {
+    for (int y = 0; y < canvas.height(); ++y) {
+      for (int x = 0; x < canvas.width(); ++x) {
+        if (!canvas.pixel_in_layers(x, y, layer_mask_bits)) {
+          continue;
+        }
+        canvas.set_pixel_preserve_layer(x, y, shade(canvas.get_pixel(x, y), static_cast<float>(x),
+                                                    static_cast<float>(y)));
       }
     }
   }
