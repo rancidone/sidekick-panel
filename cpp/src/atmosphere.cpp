@@ -169,7 +169,10 @@ void draw_tree_canopy(Canvas& canvas, int cx, int cy, int radius, float fill, Co
       float dist = dx * dx + dy * dy;
       float noise = noise_unit(static_cast<std::uint32_t>((cx + x) * 47 + (cy + y) * 89));
       if (dist < fill + noise * 0.2f) {
-        canvas.set_pixel(cx + x, cy + y, noise > 0.74f ? kCanopyMid : color);
+        // A lighter fleck of the same color for texture, not an absolute,
+        // un-adjusted highlight — otherwise it ignores whatever day/night
+        // dimming the caller already applied to `color`.
+        canvas.set_pixel(cx + x, cy + y, noise > 0.74f ? mix(color, Color{255, 255, 255}, 0.3f) : color);
       }
     }
   }
