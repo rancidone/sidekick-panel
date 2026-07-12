@@ -11,19 +11,30 @@ ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / "assets"
 OUT = ROOT / "cpp" / "generated" / "magicpanel" / "sprite_assets.h"
 
-SPRITES = {
-    "wizard_idle": "wizard_0001.png",
-    "wizard_excite": "wizard_excite_0001.png",
-    "wizard_cast": "wizard_cast_0001.png",
-    "wizard_jump": "wizard_jump_0001.png",
-    "wizard_blink_1": "wizard_blink_0001.png",
-    "wizard_blink_2": "wizard_blink_0002.png",
-    "wizard_star_1": "wizard_star_pulse_0001.png",
-    "wizard_star_2": "wizard_star_pulse_0002.png",
-    "wizard_star_3": "wizard_star_pulse_0003.png",
-    "wizard_star_4": "wizard_star_pulse_0004.png",
-    "bug": "bug.png",
+WAND_MASK_REGION = (33, 35, 50, 42)
+WAND_MASK_LINE_START = (37.0, 41.0)
+WAND_MASK_LINE_END = (49.0, 36.0)
+WAND_MASK_MAX_DISTANCE = 2.25
+WAND_MASK_COLORS = {
+    (16, 22, 74),
+    (121, 69, 27),
+    (74, 42, 16),
 }
+
+SPRITES = [
+    ("wizard_idle", "wizard_0001.png", None),
+    ("wizard_excite", "wizard_excite_0001.png", None),
+    ("wizard_cast", "wizard_cast_0001.png", None),
+    ("wizard_cast_no_wand", "wizard_cast_0001.png", (WAND_MASK_REGION, WAND_MASK_COLORS)),
+    ("wizard_jump", "wizard_jump_0001.png", None),
+    ("wizard_blink_1", "wizard_blink_0001.png", None),
+    ("wizard_blink_2", "wizard_blink_0002.png", None),
+    ("wizard_star_1", "wizard_star_pulse_0001.png", None),
+    ("wizard_star_2", "wizard_star_pulse_0002.png", None),
+    ("wizard_star_3", "wizard_star_pulse_0003.png", None),
+    ("wizard_star_4", "wizard_star_pulse_0004.png", None),
+    ("bug", "bug.png", None),
+]
 
 
 def bmp_pixels(path: Path):
@@ -60,6 +71,24 @@ def bmp_pixels(path: Path):
     return width, h, pixels
 
 
+def near_segment(x: int, y: int, start: tuple[float, float], end: tuple[float, float]) -> bool:
+    sx, sy = start
+    ex, ey = end
+    dx = ex - sx
+    dy = ey - sy
+    length_sq = dx * dx + dy * dy
+    if length_sq == 0:
+        return False
+    t = ((x - sx) * dx + (y - sy) * dy) / length_sq
+    if t < -0.1 or t > 1.1:
+        return False
+    t = max(0.0, min(1.0, t))
+    px = sx + dx * t
+    py = sy + dy * t
+    dist_sq = (x - px) * (x - px) + (y - py) * (y - py)
+    return dist_sq <= WAND_MASK_MAX_DISTANCE * WAND_MASK_MAX_DISTANCE
+
+
 def emit():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -72,8 +101,17 @@ def emit():
         "namespace magicpanel::assets {",
         "",
     ]
-    for name, filename in SPRITES.items():
+    for name, filename, mask in SPRITES:
         width, height, pixels = bmp_pixels(ASSETS / filename)
+        if mask is not None:
+            (x0, y0, x1, y1), colors = mask
+            for y in range(max(0, y0), min(height, y1 + 1)):
+                for x in range(max(0, x0), min(width, x1 + 1)):
+                    i = y * width + x
+                    pixel = pixels[i]
+                    rgb = ((pixel >> 16) & 0xFF, (pixel >> 8) & 0xFF, pixel & 0xFF)
+                    if rgb in colors and near_segment(x, y, WAND_MASK_LINE_START, WAND_MASK_LINE_END):
+                        pixels[i] = 0
         rgb565 = []
         mask = [0] * ((len(pixels) + 7) // 8)
         for i, pixel in enumerate(pixels):

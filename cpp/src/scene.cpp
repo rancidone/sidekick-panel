@@ -5,7 +5,13 @@
 namespace magicpanel {
 
 SceneManager::SceneManager(std::vector<std::unique_ptr<Scene>> scenes, std::string initial)
+    : SceneManager(std::move(scenes), std::move(initial), nullptr) {}
+
+SceneManager::SceneManager(std::vector<std::unique_ptr<Scene>> scenes,
+                           std::string initial,
+                           EnvironmentState* environment)
     : active_name_(std::move(initial)) {
+  environment_ = environment;
   for (auto& scene : scenes) {
     scenes_[scene->name()] = std::move(scene);
   }
@@ -33,6 +39,9 @@ void SceneManager::switch_to(std::string const& name) {
 void SceneManager::handle_event(Event const& event) {
   if (empty()) {
     return;
+  }
+  if (environment_ != nullptr) {
+    environment_->handle_event(event);
   }
   if (event.name == "switch_scene") {
     auto target = event.field_or("to");

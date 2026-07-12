@@ -4,6 +4,7 @@
 #include <string>
 
 #include "magicpanel/engine.h"
+#include "magicpanel/environment.h"
 #include "magicpanel/liveness.h"
 #include "magicpanel/scene.h"
 #include "magicpanel/state_store.h"
@@ -20,6 +21,7 @@ class MagicPanelApp {
  private:
   AccumulatingStateStore state_;
   LivenessTracker liveness_;
+  EnvironmentState environment_;
   std::unique_ptr<SceneManager> scenes_;
 };
 

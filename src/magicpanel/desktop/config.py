@@ -21,6 +21,12 @@ DEFAULT_GITHUB_INTERVAL = 15.0
 DEFAULT_HEARTBEAT_INTERVAL = 10.0
 DEFAULT_IDLE_TIMEOUT = 60.0
 
+# Las Vegas, NV — used until the user configures their own location.
+DEFAULT_WEATHER_LAT = 36.1699
+DEFAULT_WEATHER_LON = -115.1398
+DEFAULT_WEATHER_CONDITIONS_INTERVAL = 600.0
+DEFAULT_WEATHER_SOLAR_INTERVAL = 60.0
+
 
 def default_config_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
@@ -42,6 +48,11 @@ class Config:
     heartbeat_enabled: bool = True
     heartbeat_interval: float = DEFAULT_HEARTBEAT_INTERVAL
     idle_timeout: float = DEFAULT_IDLE_TIMEOUT
+    weather_enabled: bool = True
+    weather_lat: float = DEFAULT_WEATHER_LAT
+    weather_lon: float = DEFAULT_WEATHER_LON
+    weather_conditions_interval: float = DEFAULT_WEATHER_CONDITIONS_INTERVAL
+    weather_solar_interval: float = DEFAULT_WEATHER_SOLAR_INTERVAL
 
     def find(self, path: Path) -> Project | None:
         path = path.resolve()
@@ -78,6 +89,7 @@ def load(path: Path | None = None) -> Config:
     interval = float(github.get("interval", DEFAULT_GITHUB_INTERVAL))
 
     hb = data.get("heartbeat", {})
+    weather = data.get("weather", {})
 
     projects = []
     for entry in data.get("project", []):
@@ -94,6 +106,15 @@ def load(path: Path | None = None) -> Config:
         heartbeat_enabled=hb.get("enabled", True),
         heartbeat_interval=float(hb.get("interval", DEFAULT_HEARTBEAT_INTERVAL)),
         idle_timeout=float(hb.get("idle_timeout", DEFAULT_IDLE_TIMEOUT)),
+        weather_enabled=weather.get("enabled", True),
+        weather_lat=float(weather.get("lat", DEFAULT_WEATHER_LAT)),
+        weather_lon=float(weather.get("lon", DEFAULT_WEATHER_LON)),
+        weather_conditions_interval=float(
+            weather.get("conditions_interval", DEFAULT_WEATHER_CONDITIONS_INTERVAL)
+        ),
+        weather_solar_interval=float(
+            weather.get("solar_interval", DEFAULT_WEATHER_SOLAR_INTERVAL)
+        ),
     )
 
 
@@ -108,6 +129,15 @@ def dumps(config: Config) -> str:
         f"enabled = {'true' if config.heartbeat_enabled else 'false'}",
         f"interval = {config.heartbeat_interval}",
         f"idle_timeout = {config.idle_timeout}",
+        "",
+    ]
+    lines += [
+        "[weather]",
+        f"enabled = {'true' if config.weather_enabled else 'false'}",
+        f"lat = {config.weather_lat}",
+        f"lon = {config.weather_lon}",
+        f"conditions_interval = {config.weather_conditions_interval}",
+        f"solar_interval = {config.weather_solar_interval}",
         "",
     ]
     for project in config.projects:
